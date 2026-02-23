@@ -9,7 +9,8 @@ import ip from "ip";
 import "@/utils/logging";
 import config from "@/api/helpers/config/env";
 import createAppServer from "@/app";
-import { db_init } from "@/config/db.config";
+import { DatabaseInitialize } from "@/config/db.config";
+// import { db_init } from "@/config/db.config";
 
 dotenv.config();
 process.env.NODE_CONFIG_DIR =
@@ -26,11 +27,12 @@ const Port = config.server.port;
 const initServer = async () => {
   try {
     const app = createAppServer();
-    await db_init();
+    // always connect to the db before accepting traffic.
+    await DatabaseInitialize.connect();
     app.listen(Port, () => {
       log.info("API Initialized");
       log.info(`Documentation with Swagger : ${ip.address()}:${Port}/api-docs`);
-      log.info(`Server is running on ${ip.address()}:${Port}`);
+      log.info(`🚀 Server running on ${ip.address()}:${Port}`);
     });
   } catch (error: any) {
     log.error("Database connection error: " + error);
