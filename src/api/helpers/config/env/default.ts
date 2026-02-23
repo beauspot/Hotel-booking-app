@@ -17,12 +17,13 @@ const default_config: AppConfig = {
     port: process.env.PORT ? parseInt(process.env.PORT) : 3000,
   },
   db: {
-    host: process.env.DB_HOST,
-    port: process.env.DB_PORT ? parseInt(process.env.DB_PORT) : 5432,
-    db_name: process.env.DB_NAME,
-    db_password: process.env.DB_PASS,
-    db_user: process.env.DB_USER,
-    db_migration_name: process.env.DBM_MIGRATION || "migrations",
+    db_uri: process.env.MONGO_URI as string,
+  },
+  jwt_token: {
+    j_token: process.env.JWT_TOKEN as string,
+  },
+  refresh_token: {
+    r_token: process.env.REFRESH_TOKEN as string,
   },
   session: {
     session_secret: process.env.SESSION_SECRET,
