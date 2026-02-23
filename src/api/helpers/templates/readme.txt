@@ -1,0 +1,1 @@
+templates for send mails go in here
