@@ -1,72 +1,101 @@
-import dotenv from "dotenv";
-import { DataSource } from "typeorm";
+import mongoose from "mongoose";
 
-import config from "@/api/helpers/config/env";
+import config from "@/config/env";
 import log from "@/utils/logging";
 
-// Load environment variables
-dotenv.config();
+const MONGO_URI = config.db.db_uri;
 
-// Environment-specific .env loading
-if (config.node_env === "test") dotenv.config({ path: ".env.test" });
-
-log.info(`Current Environment: ${config.node_env} Environment`);
-
-// TODO: development database = paymetro_dev_db
-// TODO: Validate required database configuration
-if (
-  !config.db.host ||
-  !config.db.port ||
-  !config.db.db_user ||
-  !config.db.db_password ||
-  !config.db.db_name
-) {
-  log.error("Missing required database configuration:");
-  log.error(`Host: ${config.db.host}`);
-  log.error(`Port: ${config.db.port}`);
-  log.error(`User: ${config.db.db_user}`);
-  log.error(`Database: ${config.db.db_name}`);
-  throw new Error(`Database configuration error: Missing required parameters`);
-}
-
-const AppDataSource = new DataSource({
-  type: "postgres",
-  host: config.db.host,
-  port: config.db.port,
-  username: config.db.db_user,
-  password: config.db.db_password,
-  database: config.db.db_name,
-  entities: [
-    // Add your entity classes here
-    // Example: User
-  ],
-  logging:
-    config.node_env === "development" ? ["error", "warn", "schema"] : ["error"],
-  synchronize: config.node_env === "test", // Only sync in test environment
-  migrations: ["src/api/migrations/**/*.ts"],
-  migrationsTableName: config.db.db_migration_name,
-  ssl: config.node_env === "production" ? { rejectUnauthorized: false } : false,
-  poolSize: 10,
-  extra: {
-    connectionTimeoutMillis: 5000, // 5 seconds timeout
-  },
-});
-
-const db_init = async () => {
-  try {
-    await AppDataSource.initialize();
-    log.info(
-      `Database connection established successfully to ${config.db.host}:${config.db.port}/${config.db.db_name}`,
-    );
-
-    // Verify connection with a test query
-    await AppDataSource.query("SELECT 1");
-    log.info("Database connection verified");
-  } catch (error: any) {
-    log.error("Database initialization error:", error.message);
-    log.error("Stack trace:", error.stack);
-    throw error; // Re-throw to prevent application startup
-  }
+const mongooseOpt: mongoose.ConnectOptions = {
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
+  connectTimeoutMS: 10000,
+  maxPoolSize: 10,
+  minPoolSize: 2,
 };
 
-export { AppDataSource, db_init };
+class DB_Init {
+  private static instance: DB_Init;
+  private isConnected = false;
+
+  private constructor() {}
+
+  static getInstance(): DB_Init {
+    if (!DB_Init.instance) DB_Init.instance = new DB_Init();
+    return DB_Init.instance;
+  }
+
+  async connect(): Promise<void> {
+    if (this.isConnected) {
+      log.info("📦 MongoDB already connected");
+      return;
+    }
+
+    try {
+      this.registerEventListeners();
+      await mongoose.connect(MONGO_URI, mongooseOpt);
+      this.isConnected = true;
+      log.info("Connected to MongoDB");
+    } catch (error: any) {
+      log.error("💥 MongoDB initial connection failed: ", error.message);
+      process.exit(1);
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    if (!this.isConnected) return;
+
+    try {
+      await mongoose.disconnect();
+      this.isConnected = false;
+      log.info("🔌 MongoDB disconnected");
+    } catch (error: any) {
+      log.error("Error duringMongoDB disconnect: ", error.message);
+    }
+  }
+
+  private registerEventListeners(): void {
+    mongoose.connection.on("connected", () =>
+      log.info("📦 MongoDB connected & ✅ Mongoose connected to MongoDB"),
+    );
+
+    mongoose.connection.on("disconnected", () => {
+      log.warn("🔴 Mongoose disconnected");
+      this.isConnected = false;
+    });
+
+    mongoose.connection.on("reconnected", () => {
+      log.info("🔁 Mongoose reconnected");
+      this.isConnected = true;
+    });
+
+    mongoose.connection.on("error", (err: any) => {
+      log.error("❌ Mongoose connection error", err);
+      this.isConnected = false;
+    });
+
+    process.on("SIGINT", () => this.gracefulShutdown("SIGINT"));
+    process.on("SIGTERM", () => this.gracefulShutdown("SIGTERM"));
+  }
+
+  private async gracefulShutdown(signal: string): Promise<void> {
+    log.warn(`⚠️  Received ${signal}, closing MongoDB connection...`);
+    await this.disconnect();
+    process.exit(0);
+  }
+
+  getisReady(): boolean {
+    return this.isConnected;
+  }
+
+  get state(): string {
+    const states: Record<number, string> = {
+      0: "disconnected",
+      1: "connected",
+      2: "connecting",
+      3: "disconnecting",
+    };
+    return states[mongoose.connection.readyState] ?? "unknown";
+  }
+}
+
+export const DatabaseInitialize = DB_Init.getInstance();
