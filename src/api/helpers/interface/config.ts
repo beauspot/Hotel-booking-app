@@ -6,16 +6,19 @@ export interface AppConfig {
   };
 
   db: {
-    host: string | undefined;
-    port: number;
-    db_name: string | undefined;
-    db_password: string | undefined;
-    db_user: string | undefined;
-    db_migration_name: string;
+    db_uri: string | undefined;
   };
 
   session: {
     session_secret: string | undefined;
+  };
+
+  jwt_token: {
+    j_token: string | undefined;
+  };
+
+  refresh_token: {
+    r_token: string | undefined;
   };
 
   redis: {
