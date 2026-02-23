@@ -1,6 +1,8 @@
 import { ErrorRequestHandler, Request, Response } from "express";
 import { StatusCodes } from "http-status-codes";
-import { QueryFailedError, EntityNotFoundError } from "typeorm";
+import { MongoServerError } from "mongodb";
+import { MongooseError } from "mongoose";
+import { Error as MongooseDocumentError } from "mongoose";
 
 import AppError from "@/utils/appErrors";
 
@@ -9,57 +11,73 @@ const globalErrorHandler: ErrorRequestHandler = (
   req: Request,
   res: Response,
 ) => {
-  // Default error response
   const e = new Error();
   let statusCode = StatusCodes.INTERNAL_SERVER_ERROR;
-  let message = e.message; // Get the actual message rather than some random text
+  let message = e.message;
   let isOperational = false;
 
   if (err instanceof AppError) {
     statusCode = err.statusCode || StatusCodes.INTERNAL_SERVER_ERROR;
     message = err.message;
     isOperational = err.isOperational || false;
-  } else if (err instanceof EntityNotFoundError) {
+
+    // Mongoose: Document not found (e.g. findOneOrFail / orFail())
+  } else if (err instanceof MongooseDocumentError.DocumentNotFoundError) {
     statusCode = StatusCodes.NOT_FOUND;
-    message = "Entity not found";
+    message = "Resource not found";
     isOperational = true;
-  } else if (err instanceof SyntaxError) {
+
+    // Mongoose: Validation error (e.g. required fields, enum mismatches)
+  } else if (err instanceof MongooseDocumentError.ValidationError) {
+    statusCode = StatusCodes.UNPROCESSABLE_ENTITY;
+    message = Object.values(err.errors)
+      .map((e) => e.message)
+      .join(", ");
+    isOperational = true;
+
+    // Mongoose: Cast error (e.g. invalid ObjectId format)
+  } else if (err instanceof MongooseDocumentError.CastError) {
     statusCode = StatusCodes.BAD_REQUEST;
-    message = "Invalid JSON payload";
+    message = `Invalid value for field "${err.path}": ${err.value}`;
     isOperational = true;
-  } else if (err instanceof QueryFailedError) {
+
+    // MongoDB driver: Server-level errors (duplicates, timeouts, etc.)
+  } else if (err instanceof MongoServerError) {
     switch (true) {
-      case err.message.includes("duplicate key"):
+      case err.code === 11000: // Duplicate key
         statusCode = StatusCodes.CONFLICT;
-        message = "Duplicate entry, already exists";
+        message = `Duplicate entry: "${Object.keys(err.keyValue ?? {}).join(", ")}" already exists`;
         isOperational = true;
         break;
-      case err.message.includes("foreign key constraint"):
-        statusCode = StatusCodes.BAD_REQUEST;
-        message = "Invalid foreign key reference";
-        isOperational = true;
-        break;
-      case err.message.includes("does not exist"):
-        statusCode = StatusCodes.INTERNAL_SERVER_ERROR;
-        message = "Database table or column not found";
-        isOperational = false;
-        break;
+
       case err.message.includes("timeout"):
         statusCode = StatusCodes.REQUEST_TIMEOUT;
         message = "Database request timed out";
         isOperational = true;
         break;
-      case err.message.includes("syntax error"):
-        statusCode = StatusCodes.BAD_REQUEST;
-        message = "Invalid query syntax";
-        isOperational = true;
+
+      case err.message.includes("Authentication failed"):
+        statusCode = StatusCodes.INTERNAL_SERVER_ERROR;
+        message = "Database authentication failed";
+        isOperational = false;
         break;
+
       default:
-        statusCode = StatusCodes.BAD_REQUEST;
+        statusCode = StatusCodes.INTERNAL_SERVER_ERROR;
         message = "Database operation failed";
-        isOperational = true;
+        isOperational = false;
         break;
     }
+
+    // Mongoose: General connection/operational errors
+  } else if (err instanceof MongooseError) {
+    statusCode = StatusCodes.INTERNAL_SERVER_ERROR;
+    message = "Database connection error";
+    isOperational = false;
+  } else if (err instanceof SyntaxError) {
+    statusCode = StatusCodes.BAD_REQUEST;
+    message = "Invalid JSON payload";
+    isOperational = true;
   }
 
   // Log errors based on severity
@@ -83,17 +101,15 @@ const globalErrorHandler: ErrorRequestHandler = (
     );
   }
 
-  // Log errors (optional)
   log.error({ error: err }, `🚨 ERROR: ${message}`);
 
-  // Simplified JSON response (no stack trace in production)
   const response: Record<string, any> = {
     status: statusCode >= 500 ? "error" : "fail",
     message,
   };
 
   if (process.env.NODE_ENV === "development") {
-    response.stack = err.stack; // Only show stack trace in development
+    response.stack = err.stack;
     response.error = err.name;
   }
 
