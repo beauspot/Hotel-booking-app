@@ -5,6 +5,7 @@ import { DatabaseInitialize } from "@/config/db.config";
 
 const router = Router();
 
+// Health check route — useful for Docker/K8s probes
 router.get("/health", (_, res: Response) => {
   res.status(StatusCodes.OK).json({
     status: "ok",
