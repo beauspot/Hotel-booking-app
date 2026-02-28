@@ -64,13 +64,9 @@ function createAppServer(): Express {
     }),
   );
 
-  if (config.node_env === "development") {
+  if (config.node_env === "development" || config.node_env === "test") {
     morgan.token("headers", (req) => JSON.stringify(req.headers));
-    app.use(
-      morgan(
-        ":method :url :status :res[content-length] - :response-time ms :headers",
-      ),
-    );
+    app.use(morgan("dev"));
   }
 
   /**
