@@ -13,6 +13,7 @@ import morgan from "morgan";
 import config from "@/api/helpers/config/env";
 import routeNotFound from "@/middlewares/__404__notfound";
 import globalErrorHandler from "@/middlewares/errHandler";
+import authRoute from "@/routes/auth.routes";
 import healthRoute from "@/routes/healthcheck.route";
 import redisModule from "@/utils/redis";
 
@@ -89,6 +90,8 @@ function createAppServer(): Express {
   }
 
   app.use(healthRoute);
+
+  app.use("/auth", authRoute);
 
   app.use(routeNotFound);
 
